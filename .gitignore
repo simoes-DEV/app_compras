@@ -16,3 +16,6 @@ Thumbs.db
 
 # Local config
 *.log
+*.exe
+.flutter-plugins
+.flutter-plugins-dependencies

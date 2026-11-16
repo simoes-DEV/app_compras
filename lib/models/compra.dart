@@ -20,17 +20,23 @@ class Compra {
   // Quantidade comprada.
   final double quantidade;
 
-  // Valor pago naquela ocasião.
-  final double preco;
+  // Preço de uma unidade, usado para calcular o total e consultar o histórico.
+  final double precoUnitario;
 
   // ID do supermercado em que aconteceu a compra.
   final int supermercadoId;
+
+  // Número automático da visita ao supermercado em que o item foi comprado.
+  final int sessaoId;
 
   // Nome do supermercado para mostrar em listas e relatórios.
   final String supermercadoNome;
 
   // Data e hora em que a compra foi registrada.
   final DateTime dataCompra;
+
+  // Calcula o valor total com base na quantidade e no preço de cada unidade.
+  double get preco => quantidade * precoUnitario;
 
   // Construtor da classe.
   // Os campos obrigatórios são definidos com "required".
@@ -41,8 +47,9 @@ class Compra {
     required this.categoriaNome,
     required this.unidade,
     required this.quantidade,
-    required this.preco,
+    required this.precoUnitario,
     required this.supermercadoId,
+    required this.sessaoId,
     required this.supermercadoNome,
     required this.dataCompra,
   });
@@ -57,7 +64,9 @@ class Compra {
       'unidade': unidade,
       'quantidade': quantidade,
       'preco': preco,
+      'preco_unitario': precoUnitario,
       'supermercado_id': supermercadoId,
+      'sessao_id': sessaoId,
       // O SQLite salva data como texto em ISO 8601.
       'data_compra': dataCompra.toIso8601String(),
     };
@@ -73,8 +82,9 @@ class Compra {
       categoriaNome: map['categoria_nome'] ?? '',
       unidade: map['unidade'] as String,
       quantidade: (map['quantidade'] as num).toDouble(),
-      preco: (map['preco'] as num).toDouble(),
+      precoUnitario: (map['preco_unitario'] as num).toDouble(),
       supermercadoId: map['supermercado_id'] as int,
+      sessaoId: map['sessao_id'] as int,
       supermercadoNome: map['supermercado_nome'] ?? '',
       dataCompra: DateTime.parse(map['data_compra'] as String),
     );
