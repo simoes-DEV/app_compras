@@ -293,8 +293,302 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // Retorna os itens da compra atual que estão em standby (aguardando pesagem/valor).
+  List<Compra> _itensPendentesDaSessao() {
+    if (_sessaoAtualId == null) return [];
+    return _compras
+        .where((c) => c.sessaoId == _sessaoAtualId && c.aguardandoPesagem)
+        .toList();
+  }
+
+  // Bloqueia o encerramento da compra se houver itens aguardando pesagem no caixa.
+  Future<bool> _podeEncerrarSessaoAtual() async {
+    final pendentes = _itensPendentesDaSessao();
+    if (pendentes.isEmpty) return true;
+
+    final irParaPesagem = await showDialog<Compra>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.scale, color: Colors.orange),
+            SizedBox(width: 8),
+            Expanded(child: Text('Itens aguardando pesagem!')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Informe o valor ou peso destes itens antes de finalizar a compra:',
+            ),
+            const SizedBox(height: 10),
+            for (final item in pendentes)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                title: Text(
+                  item.nome,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  item.precoUnitario > 0
+                      ? 'Preço anotado: R\$ ${item.precoUnitario.toStringAsFixed(2).replaceAll('.', ',')}/${item.unidade}'
+                      : 'Sem valor informado ainda',
+                ),
+                trailing: FilledButton.tonal(
+                  onPressed: () => Navigator.pop(context, item),
+                  child: const Text('Informar'),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Voltar'),
+          ),
+        ],
+      ),
+    );
+
+    if (irParaPesagem != null && mounted) {
+      await _informarPesagemOuEditar(irParaPesagem);
+    }
+    return false;
+  }
+
+  // Abre um popup rápido para tirar o item do standby (no caixa) ou editar peso/preço.
+  Future<void> _informarPesagemOuEditar(Compra compra) async {
+    bool informarPeloValorTotal = compra.unidade == 'kg';
+    final valorTotalController = TextEditingController(
+      text: compra.preco > 0
+          ? compra.preco.toStringAsFixed(2).replaceAll('.', ',')
+          : '',
+    );
+    final precoUnitarioController = TextEditingController(
+      text: compra.precoUnitario > 0
+          ? compra.precoUnitario.toStringAsFixed(2).replaceAll('.', ',')
+          : '',
+    );
+    final quantidadeController = TextEditingController(
+      text: compra.quantidade > 0
+          ? compra.quantidade.toString().replaceAll('.', ',')
+          : '1',
+    );
+
+    final salvou = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            final precoKg = double.tryParse(
+                  precoUnitarioController.text.replaceAll(',', '.'),
+                ) ??
+                0;
+            final valorTotal = double.tryParse(
+                  valorTotalController.text.replaceAll(',', '.'),
+                ) ??
+                0;
+            final qtdManual = double.tryParse(
+                  quantidadeController.text.replaceAll(',', '.'),
+                ) ??
+                0;
+
+            // Se o usuário digitou o Valor Total pago na etiqueta/caixa e já tinha o preço do kg,
+            // calculamos o peso automaticamente!
+            final pesoCalculado = (precoKg > 0 && valorTotal > 0)
+                ? (valorTotal / precoKg)
+                : 1.0;
+
+            return AlertDialog(
+              title: Text('⚖️ ${compra.nome}'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (compra.unidade == 'kg') ...[
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: true,
+                            label: Text('Valor Total (R\$)', style: TextStyle(fontSize: 12)),
+                            icon: Icon(Icons.receipt_long, size: 16),
+                          ),
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Peso (kg)', style: TextStyle(fontSize: 12)),
+                            icon: Icon(Icons.scale, size: 16),
+                          ),
+                        ],
+                        selected: {informarPeloValorTotal},
+                        onSelectionChanged: (novo) {
+                          setStateDialog(() => informarPeloValorTotal = novo.first);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (informarPeloValorTotal) ...[
+                      TextField(
+                        controller: valorTotalController,
+                        autofocus: true,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: const [CentavosInputFormatter()],
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Valor Total na etiqueta / caixa (R\$)',
+                          hintText: 'Ex: digite 1450 para 14,50',
+                          prefixText: 'R\$ ',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setStateDialog(() {}),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: precoUnitarioController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: const [CentavosInputFormatter()],
+                        decoration: const InputDecoration(
+                          labelText: 'Preço do kg na placa (opcional)',
+                          prefixText: 'R\$ ',
+                          isDense: true,
+                        ),
+                        onChanged: (_) => setStateDialog(() {}),
+                      ),
+                      if (precoKg > 0 && valorTotal > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Peso calculado: ${pesoCalculado.toStringAsFixed(3).replaceAll('.', ',')} kg',
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ] else ...[
+                      TextField(
+                        controller: quantidadeController,
+                        autofocus: true,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Peso / Quantidade (${compra.unidade})',
+                          hintText: 'Ex: 0,750',
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setStateDialog(() {}),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: precoUnitarioController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: const [CentavosInputFormatter()],
+                        decoration: InputDecoration(
+                          labelText: 'Preço por ${compra.unidade} (R\$)',
+                          prefixText: 'R\$ ',
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setStateDialog(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          'Total: R\$ ${(qtdManual * precoKg).toStringAsFixed(2).replaceAll('.', ',')}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    await widget.database.deleteCompra(compra.id!);
+                    if (context.mounted) Navigator.pop(context, true);
+                  },
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Excluir item'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    double novaQtd;
+                    double novoPrecoUnit;
+
+                    if (informarPeloValorTotal) {
+                      if (valorTotal <= 0) return;
+                      if (precoKg > 0) {
+                        novaQtd = double.parse(
+                          (valorTotal / precoKg).toStringAsFixed(3),
+                        );
+                        novoPrecoUnit = precoKg;
+                      } else {
+                        novaQtd = 1.0;
+                        novoPrecoUnit = valorTotal;
+                      }
+                    } else {
+                      if (qtdManual <= 0 || precoKg <= 0) return;
+                      novaQtd = qtdManual;
+                      novoPrecoUnit = precoKg;
+                    }
+
+                    final atualizada = Compra(
+                      id: compra.id,
+                      nome: compra.nome,
+                      categoriaId: compra.categoriaId,
+                      categoriaNome: compra.categoriaNome,
+                      unidade: compra.unidade,
+                      quantidade: novaQtd,
+                      precoUnitario: novoPrecoUnit,
+                      supermercadoId: compra.supermercadoId,
+                      sessaoId: compra.sessaoId,
+                      supermercadoNome: compra.supermercadoNome,
+                      dataCompra: compra.dataCompra,
+                    );
+                    await widget.database.updateCompra(atualizada);
+                    if (context.mounted) Navigator.pop(context, true);
+                  },
+                  child: const Text('Confirmar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    valorTotalController.dispose();
+    precoUnitarioController.dispose();
+    quantidadeController.dispose();
+
+    if (salvou == true) {
+      _carregarDados();
+    }
+  }
+
   // Permite escolher o mercado antes de registrar itens.
   Future<void> _selecionarSupermercadoAtual() async {
+    if (_sessaoAtualId != null) {
+      final podeEncerrar = await _podeEncerrarSessaoAtual();
+      if (!podeEncerrar || !mounted) return;
+    }
+
     final supermercado = await _escolherSupermercado();
     if (supermercado != null && mounted) {
       final trocarSessao = _sessaoAtualId != null &&
@@ -335,6 +629,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _encerrarCompra() async {
     final sessaoId = _sessaoAtualId;
     if (sessaoId == null) return;
+
+    // Trava o encerramento enquanto houver itens em standby aguardando pesagem.
+    final podeEncerrar = await _podeEncerrarSessaoAtual();
+    if (!podeEncerrar || !mounted) return;
 
     final confirmar = await showDialog<bool>(
       context: context,
@@ -388,7 +686,7 @@ class _HomePageState extends State<HomePage> {
           nome: chave,
           categoriaNome: compra.categoriaNome,
           unidade: compra.unidade,
-          ultimoPrecoUnitario: compra.precoUnitario,
+          ultimoPrecoUnitario: compra.precoUnitario > 0 ? compra.precoUnitario : null,
           ultimoSupermercado: compra.supermercadoNome,
           vezesComprado: contagemPorNome[chave] ?? 1,
         ),
@@ -423,6 +721,7 @@ class _HomePageState extends State<HomePage> {
     final nomeController = TextEditingController();
     final quantidadeController = TextEditingController(text: '1');
     final precoUnitarioController = TextEditingController();
+    final nomeFocusNode = FocusNode();
     final quantidadeFocusNode = FocusNode();
     final precoFocusNode = FocusNode();
     String unidadeSelecionada = 'un';
@@ -482,28 +781,37 @@ class _HomePageState extends State<HomePage> {
       setStateDialog(() {});
     }
 
-    // Valida os campos e salva a compra; pode fechar o popup ou limpar para o próximo item.
+    // Valida os campos e salva a compra; pode fechar o popup, limpar para o próximo ou salvar em standby.
     Future<void> salvarCompra(
       BuildContext dialogContext,
       void Function(void Function()) setStateDialog, {
       required bool continuarAdicionando,
+      bool emStandby = false,
     }) async {
-      final quantidade = double.tryParse(
-        quantidadeController.text.replaceAll(',', '.'),
-      );
+      final quantidade = emStandby
+          ? 0.0
+          : double.tryParse(
+              quantidadeController.text.replaceAll(',', '.'),
+            );
       final precoUnitario = double.tryParse(
-        precoUnitarioController.text.replaceAll(',', '.'),
-      );
+            precoUnitarioController.text.replaceAll(',', '.'),
+          ) ??
+          0.0;
 
-      if (nomeController.text.trim().isEmpty ||
-          categoriaSelecionada == null ||
-          quantidade == null ||
-          quantidade <= 0 ||
-          precoUnitario == null ||
-          precoUnitario <= 0) {
+      if (nomeController.text.trim().isEmpty || categoriaSelecionada == null) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           const SnackBar(
-            content: Text('Toque em um produto e digite o preço.'),
+            content: Text('Toque em um produto ou digite o nome dele.'),
+          ),
+        );
+        return;
+      }
+
+      if (!emStandby &&
+          (quantidade == null || quantidade <= 0 || precoUnitario <= 0)) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(
+            content: Text('Digite o preço (ou deixe em Standby se for pesar no caixa).'),
           ),
         );
         return;
@@ -518,7 +826,7 @@ class _HomePageState extends State<HomePage> {
         categoriaId: categoriaSelecionada!.id!,
         categoriaNome: categoriaSelecionada!.nome,
         unidade: unidadeSelecionada,
-        quantidade: quantidade,
+        quantidade: quantidade ?? 0.0,
         precoUnitario: precoUnitario,
         supermercadoId: _supermercadoAtual!.id!,
         sessaoId: sessaoId,
@@ -542,7 +850,11 @@ class _HomePageState extends State<HomePage> {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 1),
-            content: Text('${novaCompra.nome} adicionado! Escolha o próximo.'),
+            content: Text(
+              emStandby
+                  ? '${novaCompra.nome} salvo em Standby (pesar no caixa)!'
+                  : '${novaCompra.nome} adicionado! Escolha o próximo.',
+            ),
           ),
         );
       } else {
@@ -674,6 +986,7 @@ class _HomePageState extends State<HomePage> {
                       // Campo de busca/digitação caso o produto não esteja nos botões.
                       Autocomplete<ProdutoAtalho>(
                         textEditingController: nomeController,
+                        focusNode: nomeFocusNode,
                         displayStringForOption: (item) => item.nome,
                         optionsBuilder: (textEditingValue) {
                           final busca =
@@ -890,6 +1203,28 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
+                      if (unidadeSelecionada == 'kg') ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.orange.shade800,
+                              side: BorderSide(color: Colors.orange.shade400),
+                            ),
+                            onPressed: () => salvarCompra(
+                              context,
+                              setStateDialog,
+                              continuarAdicionando: true,
+                              emStandby: true,
+                            ),
+                            icon: const Icon(Icons.scale),
+                            label: const Text(
+                              'Deixar em Standby (Pesar no caixa)',
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -927,6 +1262,7 @@ class _HomePageState extends State<HomePage> {
     nomeController.dispose();
     quantidadeController.dispose();
     precoUnitarioController.dispose();
+    nomeFocusNode.dispose();
     quantidadeFocusNode.dispose();
     precoFocusNode.dispose();
 
@@ -988,6 +1324,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     // Soma o total gasto com base nas compras carregadas.
     final totalGasto = _compras.fold<double>(0, (valor, compra) => valor + compra.preco);
+    final itensPendentes = _itensPendentesDaSessao();
     final comprasPorCategoria = <String, List<Compra>>{};
     for (final compra in _compras) {
       comprasPorCategoria.putIfAbsent(compra.categoriaNome, () => []).add(compra);
@@ -1072,13 +1409,44 @@ class _HomePageState extends State<HomePage> {
                       child: Text(_supermercadoAtual == null ? 'Selecionar' : 'Trocar'),
                     ),
                   ),
+                  if (itensPendentes.isNotEmpty)
+                    Card(
+                      color: Colors.orange.shade50,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.orange.shade300),
+                      ),
+                      child: ListTile(
+                        leading: Icon(Icons.scale, color: Colors.orange.shade800),
+                        title: Text(
+                          '${itensPendentes.length} item(ns) aguardando pesagem',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade900,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Toque no item abaixo quando passar no caixa para liberar o encerramento.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onTap: () => _informarPesagemOuEditar(itensPendentes.first),
+                      ),
+                    ),
                   if (_sessaoAtualId != null)
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton.icon(
                         onPressed: _encerrarCompra,
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: Text('Encerrar compra #$_sessaoAtualId'),
+                        icon: Icon(
+                          itensPendentes.isNotEmpty
+                              ? Icons.lock_clock
+                              : Icons.check_circle_outline,
+                        ),
+                        label: Text(
+                          itensPendentes.isNotEmpty
+                              ? 'Encerrar compra #$_sessaoAtualId (${itensPendentes.length} pendente)'
+                              : 'Encerrar compra #$_sessaoAtualId',
+                        ),
                       ),
                     ),
 
@@ -1092,7 +1460,7 @@ class _HomePageState extends State<HomePage> {
                             children: [
                               for (final categoria in categoriasOrdenadas) ...[
                                 Padding(
-                                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                                                                  padding: const EdgeInsets.only(top: 8, bottom: 4),
                                   child: Text(
                                     categoria,
                                     style: Theme.of(context).textTheme.titleMedium,
@@ -1101,26 +1469,59 @@ class _HomePageState extends State<HomePage> {
                                 for (final compra in comprasPorCategoria[categoria]!)
                                   Card(
                                     margin: const EdgeInsets.only(bottom: 8),
+                                    color: compra.aguardandoPesagem
+                                        ? Colors.orange.shade50
+                                        : null,
+                                    shape: compra.aguardandoPesagem
+                                        ? RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            side: BorderSide(
+                                              color: Colors.orange.shade400,
+                                            ),
+                                          )
+                                        : null,
                                     child: ListTile(
-                                      title: Text(compra.nome),
+                                      leading: compra.aguardandoPesagem
+                                          ? Icon(
+                                              Icons.scale,
+                                              color: Colors.orange.shade800,
+                                            )
+                                          : null,
+                                      title: Text(
+                                        compra.nome,
+                                        style: TextStyle(
+                                          fontWeight: compra.aguardandoPesagem
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
                                       subtitle: Text(
-                                        'Compra #${compra.sessaoId} • '
-                                        '${compra.quantidade} ${compra.unidade} • ${compra.supermercadoNome}',
+                                        compra.aguardandoPesagem
+                                            ? (compra.precoUnitario > 0
+                                                ? '⚖️ Standby (R\$ ${compra.precoUnitario.toStringAsFixed(2).replaceAll('.', ',')}/${compra.unidade}) • Toque para informar peso/total'
+                                                : '⚖️ Standby (A pesar no caixa) • Toque para informar valor')
+                                            : 'Compra #${compra.sessaoId} • '
+                                                '${compra.quantidade} ${compra.unidade} • ${compra.supermercadoNome}',
                                       ),
                                       trailing: Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         crossAxisAlignment: CrossAxisAlignment.end,
                                         children: [
                                           Text(
-                                            'R\$ ${compra.preco.toStringAsFixed(2)}',
-                                            style: const TextStyle(
+                                            compra.aguardandoPesagem
+                                                ? 'PENDENTE'
+                                                : 'R\$ ${compra.preco.toStringAsFixed(2)}',
+                                            style: TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              color: Colors.green,
+                                              color: compra.aguardandoPesagem
+                                                  ? Colors.orange.shade800
+                                                  : Colors.green,
                                             ),
                                           ),
                                           Text(DateFormat('dd/MM/yyyy').format(compra.dataCompra)),
                                         ],
                                       ),
+                                      onTap: () => _informarPesagemOuEditar(compra),
                                       onLongPress: () async {
                                         await widget.database.deleteCompra(compra.id!);
                                         _carregarDados();

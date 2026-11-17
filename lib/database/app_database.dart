@@ -224,6 +224,17 @@ class AppDatabase {
     return db.insert('compras', compra.toMap());
   }
 
+  // Atualiza uma compra existente (usado ao informar o peso/preço no caixa).
+  Future<void> updateCompra(Compra compra) async {
+    final db = await database;
+    await db.update(
+      'compras',
+      compra.toMap(),
+      where: 'id = ?',
+      whereArgs: [compra.id],
+    );
+  }
+
   // Cria uma visita numerada ao supermercado e devolve seu número automático.
   Future<int> iniciarSessao(int supermercadoId) async {
     final db = await database;

@@ -38,6 +38,9 @@ class Compra {
   // Calcula o valor total com base na quantidade e no preço de cada unidade.
   double get preco => quantidade * precoUnitario;
 
+  // Indica se o item foi deixado em standby (aguardando pesagem/valor no caixa).
+  bool get aguardandoPesagem => quantidade <= 0 || precoUnitario <= 0;
+
   // Construtor da classe.
   // Os campos obrigatórios são definidos com "required".
   Compra({
