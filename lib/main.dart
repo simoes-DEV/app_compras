@@ -573,9 +573,12 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    valorTotalController.dispose();
-    precoUnitarioController.dispose();
-    quantidadeController.dispose();
+    // Aguarda a animação de fechamento do popup terminar antes de liberar os controladores.
+    Future.delayed(const Duration(milliseconds: 500), () {
+      valorTotalController.dispose();
+      precoUnitarioController.dispose();
+      quantidadeController.dispose();
+    });
 
     if (salvou == true) {
       _carregarDados();
@@ -1231,7 +1234,10 @@ class _HomePageState extends State<HomePage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context, salvouAlgumItem),
+                  onPressed: () {
+                    FocusScope.of(context).unfocus();
+                    Navigator.pop(context, salvouAlgumItem);
+                  },
                   child: const Text('Fechar'),
                 ),
                 OutlinedButton.icon(
@@ -1244,11 +1250,14 @@ class _HomePageState extends State<HomePage> {
                   label: const Text('Salvar +1'),
                 ),
                 FilledButton(
-                  onPressed: () => salvarCompra(
-                    context,
-                    setStateDialog,
-                    continuarAdicionando: false,
-                  ),
+                  onPressed: () {
+                    FocusScope.of(context).unfocus();
+                    salvarCompra(
+                      context,
+                      setStateDialog,
+                      continuarAdicionando: false,
+                    );
+                  },
                   child: const Text('Salvar'),
                 ),
               ],
@@ -1258,13 +1267,16 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    // Libera os recursos de entrada associados ao formulário.
-    nomeController.dispose();
-    quantidadeController.dispose();
-    precoUnitarioController.dispose();
-    nomeFocusNode.dispose();
-    quantidadeFocusNode.dispose();
-    precoFocusNode.dispose();
+    // Aguarda a animação de fechamento do popup terminar antes de liberar os controladores,
+    // evitando erro de "TextEditingController was used after being disposed".
+    Future.delayed(const Duration(milliseconds: 500), () {
+      nomeController.dispose();
+      quantidadeController.dispose();
+      precoUnitarioController.dispose();
+      nomeFocusNode.dispose();
+      quantidadeFocusNode.dispose();
+      precoFocusNode.dispose();
+    });
 
     // Se o popup voltou com sucesso, recarrega a tela para mostrar a nova compra.
     if (result == true || salvouAlgumItem) {
